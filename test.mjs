@@ -59,7 +59,21 @@ for (const p of ['/api-mojang', '/session-mojang', '/api-minecraft']) {
   const w = buf.readUInt32BE(16);
   const h = buf.readUInt32BE(20);
   console.log(`\n== /ping.png?p=${p} == (${r.status}) level=${level} latency=${ms}ms sig=${sigOk} ${w}x${h} bytes=${buf.length}`);
-  writeFileSync(`/tmp/opencode/ping-combo-level${level}.png`, buf);
+}
+
+{
+  const r = await worker.fetch(new Request('http://localhost/ping.png?mode=proxy'));
+  const buf = Buffer.from(await r.arrayBuffer());
+  const level = r.headers.get('x-ping-level');
+  const ms = Number(r.headers.get('x-ping-latency-ms'));
+  const sigOk = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => buf[i] === v);
+  console.log(`\n== /ping.png?mode=proxy == (${r.status}) level=${level} proxyLatency=${ms}ms sig=${sigOk} ${buf.readUInt32BE(16)}x20 bytes=${buf.length}`);
+
+  // 交叉验证：/ping 返回的 proxyLatencyMs 与 avgUpstreamLatencyMs 应近似 proxyLatency - avg（网络抖动会有偏差）
+  const ping = JSON.parse((await call('/ping')).text);
+  const expect = Math.max(0, ping.proxyLatencyMs - (ping.avgUpstreamLatencyMs ?? 0));
+  console.log(`  /ping 交叉校验: proxyLatencyMs=${ping.proxyLatencyMs} avg=${ping.avgUpstreamLatencyMs} 期望差≈${expect}ms（实测 ${ms}ms）`);
+  writeFileSync('/tmp/opencode/ping-proxy-mode.png', buf);
 }
 await show('unknown path 404', '/foo');
 await show('proxy /api-mojang/users/profiles/minecraft/Notch', '/api-mojang/users/profiles/minecraft/Notch');

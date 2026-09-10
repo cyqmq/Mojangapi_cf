@@ -139,11 +139,13 @@ PNG 版（PCL2 用）：把 `/badge` 替换为 `/badge.png` 即可。
 |------|------|
 | `?p=/api-mojang`（默认） | 探测并生成该上游的信号条图 |
 | `?p=/session-mojang` / `?p=/api-minecraft` | 同上 |
+| `?mode=proxy` | 代理自身处理延迟：并发探测全部上游，取 `proxyLatencyMs - avgUpstreamLatencyMs` |
 
-延迟映射与徽章配色一致：`<300ms`→ping_5（绿）、`<800ms`→ping_4（黄）、`<1500ms`→ping_3（橙）、`<2500ms`→ping_2（橙红）、更慢或不可达→ping_1（深红）。图片左侧为信号条，右侧色块内显示实时延迟数字（如 `307MS`），二者来自同一次探测，同步显示。
+`mode=proxy` 反映 Worker 自身的处理开销（不含等待上游响应的时间），数字为暗色显示在白色圆角图中。
 
 ```bash
 curl -o ping.png "https://你的worker域名/ping.png?p=/api-mojang"
+curl -o proxy.png "https://你的worker域名/ping.png?mode=proxy"
 ```
 
 响应头附带实际延迟便于调试：`X-Ping-Level`、`X-Ping-Latency-Ms`。

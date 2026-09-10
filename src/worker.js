@@ -548,18 +548,9 @@ async function handleBadgePng(url) {
   });
 }
 
-// GET /ping.png —— 生成「ping 信号条 + 延迟数字」合成图（PCL2 MyImage 可用）
-// 参数：?p=/api-mojang | /session-mojang | /api-minecraft（默认 /api-mojang）
-async function handlePingIcon(url) {
-  const wanted = url.searchParams.get('p') || '/api-mojang';
-  const probe = STATUS_PROBES[wanted];
-  if (!probe) {
-    return new Response('Not Found: unknown endpoint ' + wanted, {
-      status: 404,
-      headers: getCorsHeaders(null),
-    });
-  }
-
+// 探测单个上游，返回存活状态与耗时
+async function probeEndpoint(name) {
+  const probe = STATUS_PROBES[name];
   const start = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
@@ -578,11 +569,11 @@ async function handlePingIcon(url) {
   } finally {
     clearTimeout(timer);
   }
-  const latencyMs = Date.now() - start;
-  const level = latencyToPing(latencyMs, alive);
-  const value = alive ? `${latencyMs}MS` : timedOut ? 'TIMEOUT' : 'DOWN';
+  return { alive, timedOut, latencyMs: Date.now() - start };
+}
 
-  // 布局：左侧 ping 信号条（放大 2x），右侧延迟数字（白底深色文字）
+// 生成「ping 信号条 + 延迟数字」合成图（PNG）
+async function buildPingCompositeImage(value, level) {
   const scale = 2;
   const iconW = PING_ICON_W * scale;
   const iconH = PING_ICON_H * scale;
@@ -591,23 +582,76 @@ async function handlePingIcon(url) {
   const W = segIconW + segValueW;
 
   const raw = createCanvasRGB(W, BADGE_H);
-
   // 信号条（白底，垂直居中）
   drawPingStaircase(raw, W, PAD_X, Math.round((BADGE_H - iconH) / 2), scale, level);
-
-  // 延迟数字：白底 + 统一深色文字，任意等级背景（含黄色）下都清晰可辨
+  // 延迟数字：白底 + 统一深色文字，任意等级背景下都清晰可辨
   drawTextRGB(raw, W, segIconW + PAD_X, 6, value, PING_TEXT_COLOR);
+  return encodePng(W, BADGE_H, raw);
+}
 
-  return new Response(await encodePng(W, BADGE_H, raw), {
+function pingPngResponse(png, level, latencyMs) {
+  return new Response(png, {
     status: 200,
     headers: {
       ...getCorsHeaders(null),
       'Content-Type': 'image/png',
       'Cache-Control': 'no-store',
       'X-Ping-Level': String(level),
-      'X-Ping-Latency-Ms': String(latencyMs),
+      'X-Ping-Latency-Ms': latencyMs === null ? 'N/A' : String(latencyMs),
     },
   });
+}
+
+// GET /ping.png —— 生成「ping 信号条 + 延迟数字」合成图（PCL2 MyImage 可用）
+// 参数：
+//   ?p=/api-mojang | /session-mojang | /api-minecraft（默认 /api-mojang）—— 单个上游信号
+//   ?mode=proxy —— 代理自身处理延迟（proxyLatencyMs - avgUpstreamLatencyMs）
+async function handlePingIcon(url) {
+  const mode = url.searchParams.get('mode');
+
+  // mode=proxy：并发探测全部上游，proxyLatencyMs=总墙钟，差值即代理自身处理开销
+  if (mode === 'proxy') {
+    const proxyStarted = Date.now();
+    const entries = await Promise.all(
+      Object.keys(STATUS_PROBES).map(async (name) => [name, await probeEndpoint(name)]),
+    );
+    const proxyLatencyMs = Date.now() - proxyStarted;
+    const latencies = entries.filter(([, r]) => r.alive).map(([, r]) => r.latencyMs);
+    const avgUpstreamLatencyMs = latencies.length
+      ? Math.round(latencies.reduce((s, ms) => s + ms, 0) / latencies.length)
+      : null;
+
+    let level;
+    let value;
+    let latencyMs;
+    if (avgUpstreamLatencyMs === null) {
+      // 全部上游不可达，代理开销无意义
+      level = 1;
+      value = 'DOWN';
+      latencyMs = null;
+    } else {
+      latencyMs = Math.max(0, proxyLatencyMs - avgUpstreamLatencyMs);
+      level = latencyToPing(latencyMs, true);
+      value = `${latencyMs}MS`;
+    }
+
+    return pingPngResponse(await buildPingCompositeImage(value, level), level, latencyMs);
+  }
+
+  // 默认：探测单个上游
+  const wanted = url.searchParams.get('p') || '/api-mojang';
+  if (!STATUS_PROBES[wanted]) {
+    return new Response('Not Found: unknown endpoint ' + wanted, {
+      status: 404,
+      headers: getCorsHeaders(null),
+    });
+  }
+
+  const { alive, timedOut, latencyMs } = await probeEndpoint(wanted);
+  const level = latencyToPing(latencyMs, alive);
+  const value = alive ? `${latencyMs}MS` : timedOut ? 'TIMEOUT' : 'DOWN';
+
+  return pingPngResponse(await buildPingCompositeImage(value, level), level, latencyMs);
 }
 
 // ES 模块格式的导出
