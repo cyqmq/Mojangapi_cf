@@ -300,6 +300,7 @@ const PING_LEVEL_COLORS = {
   5: { bright: [0, 255, 33], dark: [0, 135, 15] }, // 绿
 };
 const PING_GREY = { bright: [91, 91, 91], dark: [56, 56, 56] }; // 未激活灰色槽
+const PING_TEXT_COLOR = [17, 17, 17]; // 延迟数字统一深色
 const PING_BARS = 5;
 const PING_ICON_W = 10;
 const PING_ICON_H = 8;
@@ -581,7 +582,7 @@ async function handlePingIcon(url) {
   const level = latencyToPing(latencyMs, alive);
   const value = alive ? `${latencyMs}MS` : timedOut ? 'TIMEOUT' : 'DOWN';
 
-  // 布局：左侧 ping 信号条（放大 2x），右侧等级色块 + 延迟数字
+  // 布局：左侧 ping 信号条（放大 2x），右侧延迟数字（白底深色文字）
   const scale = 2;
   const iconW = PING_ICON_W * scale;
   const iconH = PING_ICON_H * scale;
@@ -590,15 +591,12 @@ async function handlePingIcon(url) {
   const W = segIconW + segValueW;
 
   const raw = createCanvasRGB(W, BADGE_H);
-  const white = [255, 255, 255];
 
   // 信号条（白底，垂直居中）
   drawPingStaircase(raw, W, PAD_X, Math.round((BADGE_H - iconH) / 2), scale, level);
 
-  // 数值块：等级色背景 + 白色文字，与 /badge 风格一致
-  const levelColor = badgeColor(alive, latencyMs);
-  fillRectRGB(raw, W, segIconW, 0, segValueW, BADGE_H, hexColor(levelColor));
-  drawTextRGB(raw, W, segIconW + PAD_X, 6, value, white);
+  // 延迟数字：白底 + 统一深色文字，任意等级背景（含黄色）下都清晰可辨
+  drawTextRGB(raw, W, segIconW + PAD_X, 6, value, PING_TEXT_COLOR);
 
   return new Response(await encodePng(W, BADGE_H, raw), {
     status: 200,
