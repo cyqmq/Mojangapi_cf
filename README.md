@@ -76,6 +76,49 @@ curl https://你的worker域名/status
 - 整体 `status`：`ok`（全部存活）/ `degraded`（部分存活）/ `down`（全部不可达）。
 - 探针默认超时 5s，可通过 `PROBE_TIMEOUT_MS` 调整。
 
+### 实时延迟 `/ping`
+
+轻量版状态，便于页面 / 启动器定时轮询展示：
+
+```bash
+curl https://你的worker域名/ping
+# {
+#   "time": "2026-09-10T00:00:00.000Z",
+#   "proxyLatencyMs": 688,
+#   "avgUpstreamLatencyMs": 434,
+#   "upstream": { "/api-mojang": {"alive": true, "latencyMs": 314}, ... }
+# }
+```
+
+### 状态徽章 `/badge`（PCL2 主页集成）
+
+动态生成 shields 风格 SVG 徽章，实时反映上游状态与延迟，可直接作为图片嵌入网页 / PCL2 主页按钮：
+
+| 参数 | 说明 |
+|------|------|
+| `?p=all`（默认） | 三个上游合并为一个徽章 |
+| `?p=/api-mojang` | 单个上游徽章 |
+| `?p=/session-mojang` / `?p=/api-minecraft` | 同上 |
+
+```bash
+# 示例（这些 URL 本身就是一张图片）
+https://你的worker域名/badge?p=all
+https://你的worker域名/badge?p=/api-mojang
+```
+
+徽章右侧颜色表示当前延迟：
+绿 `300ms` 内 / 黄绿 `800ms` 内 / 黄 `1500ms` 内 / 橙更慢，红色表示不可达（`down`/`timeout`）。
+
+Markdown 嵌入示例：
+
+```markdown
+![api-mojang](https://你的worker域名/badge?p=/api-mojang)
+![session-mojang](https://你的worker域名/badge?p=/session-mojang)
+![api-minecraft](https://你的worker域名/badge?p=/api-minecraft)
+```
+
+> PCL2 集成：在启动器主页按钮的图片/网页里引用上述 SVG URL，即可实时看到 API 延迟；点按钮可跳转 `/status` 查看完整 JSON。
+
 ## 本地调试
 
 ```bash

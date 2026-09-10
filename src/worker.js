@@ -98,6 +98,17 @@ async function probeAvailability(name) {
   }
 }
 
+function jsonResponse(payload) {
+  return new Response(JSON.stringify(payload, null, 2), {
+    status: 200,
+    headers: {
+      ...getCorsHeaders(null),
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 // GET /status | /health —— 代理状态与各上游延迟
 async function handleStatus() {
   const proxyStartedAt = Date.now();
@@ -131,11 +142,121 @@ async function handleStatus() {
     },
   };
 
-  return new Response(JSON.stringify(payload, null, 2), {
+  return jsonResponse(payload);
+}
+
+// 单个上游的轻量延迟信息（/ping 用）
+async function handlePing() {
+  const startedAt = Date.now();
+
+  const entries = await Promise.all(
+    Object.keys(STATUS_PROBES).map(async (name) => [name, await probeAvailability(name)]),
+  );
+
+  const alive = entries
+    .filter(([, r]) => r.alive)
+    .map(([, r]) => r.latencyMs);
+  const upstream = Object.fromEntries(
+    entries.map(([name, r]) => [
+      name,
+      { alive: r.alive, status: r.status, latencyMs: r.latencyMs, error: r.error },
+    ]),
+  );
+
+  return jsonResponse({
+    service: 'minecraft-auth-proxy',
+    time: new Date().toISOString(),
+    proxyLatencyMs: Date.now() - startedAt,
+    avgUpstreamLatencyMs: alive.length
+      ? Math.round(alive.reduce((sum, ms) => sum + ms, 0) / alive.length)
+      : null,
+    upstream,
+  });
+}
+
+// ---- 状态徽章（SVG，可供 PCL2 主页等作为图片嵌入）----
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function badgeColor(alive, latencyMs) {
+  if (!alive) return '#e05d44'; // 红：不可达
+  if (latencyMs < 300) return '#4c1'; // 亮绿：优
+  if (latencyMs < 800) return '#97ca00'; // 黄绿：良
+  if (latencyMs < 1500) return '#dfb317'; // 黄：一般
+  return '#fe7d37'; // 橙：慢
+}
+
+function badgeWidth(text) {
+  return Math.round(String(text).length * 7.1 + 10);
+}
+
+function badgeText(x, text, color) {
+  const esc = escapeXml(text);
+  return (
+    `<text x="${x}" y="15" fill="#010101" fill-opacity=".3" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11" text-anchor="middle">${esc}</text>` +
+    `<text x="${x}" y="14" fill="${color}" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11" text-anchor="middle">${esc}</text>`
+  );
+}
+
+function buildBadge(segments) {
+  const widths = segments.map((s) => ({ lw: badgeWidth(s.label), vw: badgeWidth(s.value) }));
+  const total = widths.reduce((sum, w) => sum + w.lw + w.vw, 0);
+  const aria = escapeXml(segments.map((s) => `${s.label}: ${s.value}`).join(' '));
+
+  let cursor = 0;
+  let rects = '';
+  let texts = '';
+  for (let i = 0; i < segments.length; i++) {
+    const { lw, vw } = widths[i];
+    const s = segments[i];
+    rects += `<rect x="${cursor}" width="${lw}" height="20" fill="#555"/>`;
+    rects += `<rect x="${cursor + lw}" width="${vw}" height="20" fill="${s.color}"/>`;
+    texts += badgeText(cursor + lw / 2, s.label, '#fff');
+    texts += badgeText(cursor + lw + vw / 2, s.value, '#fff');
+    cursor += lw + vw;
+  }
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="20" role="img" aria-label="${aria}">` +
+    `<linearGradient id="s" x2="0" y2="100%">` +
+    `<stop offset="0" stop-color="#fff" stop-opacity=".7"/><stop offset=".1" stop-opacity=".1"/>` +
+    `</linearGradient>` +
+    `<clipPath id="r"><rect width="${total}" height="20" rx="3" fill="#fff"/></clipPath>` +
+    `<g clip-path="url(#r)">${rects}<rect width="${total}" height="20" fill="url(#s)"/></g>` +
+    `<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">${texts}</g>` +
+    `</svg>`
+  );
+}
+
+// GET /badge —— 实时状态徽章，?p=all | /api-mojang | /session-mojang | /api-minecraft
+async function handleBadge(url) {
+  const wanted = url.searchParams.get('p') || 'all';
+
+  const entries = await Promise.all(
+    Object.keys(STATUS_PROBES).map(async (name) => [name, await probeAvailability(name)]),
+  );
+  const picked = wanted === 'all' ? entries : entries.filter(([name]) => name === wanted);
+
+  const segments = picked.map(([name, r]) => ({
+    label: name,
+    value: r.alive ? `${r.latencyMs}ms` : r.error === 'timeout' ? 'timeout' : 'down',
+    color: badgeColor(r.alive, r.latencyMs),
+  }));
+  if (!segments.length) {
+    segments.push({ label: 'badge', value: `unknown: ${wanted}`, color: '#9f9f9f' });
+  }
+
+  return new Response(buildBadge(segments), {
     status: 200,
     headers: {
       ...getCorsHeaders(null),
-      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Type': 'image/svg+xml; charset=utf-8',
       'Cache-Control': 'no-store',
     },
   });
@@ -155,6 +276,16 @@ export default {
     // 代理状态 / 健康检查（放代理业务之前拦截）
     if (url.pathname === '/status' || url.pathname === '/health') {
       return handleStatus();
+    }
+
+    // 实时延迟（轻量，供页面/启动器轮询）
+    if (url.pathname === '/ping') {
+      return handlePing();
+    }
+
+    // 状态徽章（SVG 图片，供 PCL2 主页等嵌入）
+    if (url.pathname === '/badge') {
+      return handleBadge(url);
     }
 
     // 查找匹配的 API 端点

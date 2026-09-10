@@ -23,5 +23,17 @@ const show = async (label, path) => {
 
 await show('/status', '/status');
 await show('/health', '/health');
+
+const ping = await call('/ping');
+console.log('\n== /ping == (' + ping.status + ')');
+const p = JSON.parse(ping.text);
+console.log(`avg: ${p.avgUpstreamLatencyMs}ms | proxy: ${p.proxyLatencyMs}ms | ${Object.entries(p.upstream).map(([k, v]) => `${k}=${v.alive ? v.latencyMs + 'ms' : 'DOWN'}`).join(' ')}`);
+
+for (const q of ['all', '/api-mojang', '/api-minecraft', '/no-such']) {
+  const b = await call(`/badge?p=${encodeURIComponent(q)}`);
+  const head = b.text.split('\n').find((l) => l.includes('svg')) || b.text.slice(0, 60);
+  console.log(`\n== /badge?p=${q} == (${b.status} ${b.text.match(/Content-Type|image|svg/) ? 'svg' : '?'}) width=${b.text.match(/width="(\d+)"/)?.[1]}`);
+}
+
 await show('unknown path 404', '/foo');
 await show('proxy /api-mojang/users/profiles/minecraft/Notch', '/api-mojang/users/profiles/minecraft/Notch');
