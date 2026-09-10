@@ -185,11 +185,11 @@ function escapeXml(value) {
 }
 
 function badgeColor(alive, latencyMs) {
-  if (!alive) return '#e05d44'; // 红：不可达
-  if (latencyMs < 300) return '#4c1'; // 亮绿：优
-  if (latencyMs < 800) return '#97ca00'; // 黄绿：良
-  if (latencyMs < 1500) return '#dfb317'; // 黄：一般
-  return '#fe7d37'; // 橙：慢
+  if (!alive) return '#910003'; // 深红：不可达
+  if (latencyMs < 300) return '#00ff21'; // 绿：优
+  if (latencyMs < 800) return '#f3ff00'; // 黄：良
+  if (latencyMs < 1500) return '#ffa500'; // 橙：一般
+  return '#ff4300'; // 橙红：慢
 }
 
 function badgeWidth(text) {
@@ -277,11 +277,11 @@ const GLYPH_ADV = 6;
 const PAD_X = 5;
 
 const PNG_COLORS = {
-  '#4c1': [76, 204, 17],
-  '#97ca00': [151, 202, 0],
-  '#dfb317': [223, 179, 23],
-  '#fe7d37': [254, 125, 55],
-  '#e05d44': [224, 93, 68],
+  '#00ff21': [0, 255, 33],
+  '#f3ff00': [243, 255, 0],
+  '#ffa500': [255, 165, 0],
+  '#ff4300': [255, 67, 0],
+  '#910003': [145, 0, 3],
   '#555': [85, 85, 85],
   '#9f9f9f': [159, 159, 159],
 };

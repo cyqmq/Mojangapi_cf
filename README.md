@@ -118,8 +118,8 @@ https://你的worker域名/badge.png?p=/api-mojang
 
 > **PCL2 集成**：PCL2 的 `MyImage` 控件基于 WPF，不支持 SVG。使用 `/badge.png` 端点获取 PNG 格式徽章。在启动器主页按钮的图片引用 `badge.png` URL，即可实时显示 API 延迟；点按钮可跳转 `/status` 查看完整 JSON。
 
-徽章右侧颜色表示当前延迟：
-绿 `300ms` 内 / 黄绿 `800ms` 内 / 黄 `1500ms` 内 / 橙更慢，红色表示不可达（`down`/`timeout`）。
+徽章右侧颜色表示当前延迟（配色参考 [Colored ping bars](https://www.curseforge.com/minecraft/texture-packs/colored-ping-bars)）：
+绿 `<300ms` / 黄 `<800ms` / 橙 `<1500ms` / 橙红 `>1500ms`，深红表示不可达（`down`/`timeout`）。
 
 Markdown 嵌入示例：
 
