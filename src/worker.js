@@ -300,7 +300,8 @@ const PING_LEVEL_COLORS = {
   5: { bright: [0, 255, 33], dark: [0, 135, 15] }, // 绿
 };
 const PING_GREY = { bright: [91, 91, 91], dark: [56, 56, 56] }; // 未激活灰色槽
-const PING_TEXT_COLOR = [17, 17, 17]; // 延迟数字统一深色
+const PING_TEXT_CORE = [17, 17, 17, 255]; // 延迟数字像素色
+const PING_TEXT_HALO = [255, 255, 255, 255]; // 白色描边（任意背景可读）
 const PING_BARS = 5;
 const PING_ICON_W = 10;
 const PING_ICON_H = 8;
@@ -314,15 +315,16 @@ function latencyToPing(latencyMs, alive) {
   return 1;
 }
 
-// 绘制 ping 阶梯条（levelN 填充前 N 条），到 raw 画布，base 位置 x0,y0，scale 为放大倍数
+// 绘制 ping 阶梯条（RGBA，透明背景），base 位置 x0,y0，scale 为放大倍数
 function drawPingStaircase(raw, width, x0, y0, scale, level) {
   const fill = (x, y, color) => {
     for (let dy = 0; dy < scale; dy++) {
       for (let dx = 0; dx < scale; dx++) {
-        const i = rgbAt(raw, width, x0 + x * scale + dx, y0 + y * scale + dy);
+        const i = rgbaAt(raw, width, x0 + x * scale + dx, y0 + y * scale + dy);
         raw[i] = color[0];
         raw[i + 1] = color[1];
         raw[i + 2] = color[2];
+        raw[i + 3] = 255; // alpha 255
       }
     }
   };
@@ -425,13 +427,13 @@ async function zlibDeflate(data) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function encodePng(width, height, rgb) {
+async function encodePng(width, height, raw, colorType = 2) {
   const ihdr = new Uint8Array(13);
   const dv = new DataView(ihdr.buffer);
   dv.setUint32(0, width);
   dv.setUint32(4, height);
   ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // color type: RGB（PCL2/WPF 通用）
+  ihdr[9] = colorType; // 2=RGB，6=RGBA（PCL2/WPF 通用）
   ihdr[10] = 0;
   ihdr[11] = 0;
   ihdr[12] = 0;
@@ -439,7 +441,7 @@ async function encodePng(width, height, rgb) {
   const parts = [
     PNG_SIGNATURE,
     pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', await zlibDeflate(rgb)),
+    pngChunk('IDAT', await zlibDeflate(raw)),
     pngChunk('IEND', new Uint8Array(0)),
   ];
   let total = 0;
@@ -511,6 +513,42 @@ function drawTextRGB(raw, width, x, y, text, color) {
   }
 }
 
+// ---- RGBA（透明背景）绘制辅助，供 /ping.png 使用 ----
+
+function createCanvasRGBA(width, height) {
+  const rowStride = 1 + width * 4;
+  const raw = new Uint8Array(rowStride * height); // 全 0 → alpha 0，透明背景
+  return raw;
+}
+
+function rgbaAt(raw, width, x, y) {
+  return y * (1 + width * 4) + 1 + x * 4;
+}
+
+function drawGlyphRGBA(raw, width, x, y, glyph, color) {
+  for (let c = 0; c < GLYPH_W; c++) {
+    const col = glyph[c];
+    for (let r = 0; r < GLYPH_H; r++) {
+      if ((col >> (6 - r)) & 1) {
+        const i = rgbaAt(raw, width, x + c, y + r);
+        raw[i] = color[0];
+        raw[i + 1] = color[1];
+        raw[i + 2] = color[2];
+        raw[i + 3] = color[3];
+      }
+    }
+  }
+}
+
+function drawTextRGBA(raw, width, x, y, text, color) {
+  let cx = x;
+  for (const ch of String(text).toUpperCase()) {
+    const glyph = PNG_FONT[ch];
+    if (glyph) drawGlyphRGBA(raw, width, cx, y, glyph, color);
+    cx += GLYPH_ADV;
+  }
+}
+
 // GET /badge.png —— PNG 版状态徽章（PCL2 MyImage 可用），参数同 /badge
 async function handleBadgePng(url) {
   const wanted = url.searchParams.get('p') || 'all';
@@ -572,7 +610,7 @@ async function probeEndpoint(name) {
   return { alive, timedOut, latencyMs: Date.now() - start };
 }
 
-// 生成「ping 信号条 + 延迟数字」合成图（PNG）
+// 生成「ping 信号条 + 延迟数字」合成图（PNG，透明背景）
 async function buildPingCompositeImage(value, level) {
   const scale = 2;
   const iconW = PING_ICON_W * scale;
@@ -581,12 +619,19 @@ async function buildPingCompositeImage(value, level) {
   const segValueW = PAD_X * 2 + measureText(value);
   const W = segIconW + segValueW;
 
-  const raw = createCanvasRGB(W, BADGE_H);
-  // 信号条（白底，垂直居中）
+  // 透明背景，仅画信号条与数字
+  const raw = createCanvasRGBA(W, BADGE_H);
   drawPingStaircase(raw, W, PAD_X, Math.round((BADGE_H - iconH) / 2), scale, level);
-  // 延迟数字：白底 + 统一深色文字，任意等级背景下都清晰可辨
-  drawTextRGB(raw, W, segIconW + PAD_X, 6, value, PING_TEXT_COLOR);
-  return encodePng(W, BADGE_H, raw);
+
+  // 数字：核心深色 + 1px 白色描边（MC 文字风格），任意主题背景可读
+  const textX = segIconW + PAD_X;
+  const textY = 6;
+  for (const [dx, dy] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
+    drawTextRGBA(raw, W, textX + dx, textY + dy, value, PING_TEXT_HALO);
+  }
+  drawTextRGBA(raw, W, textX, textY, value, PING_TEXT_CORE);
+
+  return encodePng(W, BADGE_H, raw, 6); // colorType 6 = RGBA（透明）
 }
 
 function pingPngResponse(png, level, latencyMs) {

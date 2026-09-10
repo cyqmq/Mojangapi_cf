@@ -58,7 +58,8 @@ for (const p of ['/api-mojang', '/session-mojang', '/api-minecraft']) {
   const sigOk = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => buf[i] === v);
   const w = buf.readUInt32BE(16);
   const h = buf.readUInt32BE(20);
-  console.log(`\n== /ping.png?p=${p} == (${r.status}) level=${level} latency=${ms}ms sig=${sigOk} ${w}x${h} bytes=${buf.length}`);
+  const rgba = buf[25] === 6; // colorType 6 = RGBA（透明背景）
+  console.log(`\n== /ping.png?p=${p} == (${r.status}) level=${level} latency=${ms}ms sig=${sigOk} rgba=${rgba} ${w}x${h} bytes=${buf.length}`);
 }
 
 {
@@ -67,7 +68,7 @@ for (const p of ['/api-mojang', '/session-mojang', '/api-minecraft']) {
   const level = r.headers.get('x-ping-level');
   const ms = Number(r.headers.get('x-ping-latency-ms'));
   const sigOk = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => buf[i] === v);
-  console.log(`\n== /ping.png?mode=proxy == (${r.status}) level=${level} proxyLatency=${ms}ms sig=${sigOk} ${buf.readUInt32BE(16)}x20 bytes=${buf.length}`);
+  console.log(`\n== /ping.png?mode=proxy == (${r.status}) level=${level} proxyLatency=${ms}ms sig=${sigOk} rgba=${buf[25] === 6} ${buf.readUInt32BE(16)}x20 bytes=${buf.length}`);
 
   // 交叉验证：/ping 返回的 proxyLatencyMs 与 avgUpstreamLatencyMs 应近似 proxyLatency - avg（网络抖动会有偏差）
   const ping = JSON.parse((await call('/ping')).text);

@@ -141,7 +141,7 @@ PNG 版（PCL2 用）：把 `/badge` 替换为 `/badge.png` 即可。
 | `?p=/session-mojang` / `?p=/api-minecraft` | 同上 |
 | `?mode=proxy` | 代理自身处理延迟：并发探测全部上游，取 `proxyLatencyMs - avgUpstreamLatencyMs` |
 
-`mode=proxy` 反映 Worker 自身的处理开销（不含等待上游响应的时间），数字为暗色显示在白色圆角图中。
+`mode=proxy` 反映 Worker 自身的处理开销（不含等待上游响应的时间）。图片为 **RGBA 透明背景** 的 PNG：仅含信号条与文字，数字为深色 + 白色描边（MC 文字风格），在 PCL2 任意明暗主题下都无方块感且清晰可辨。
 
 ```bash
 curl -o ping.png "https://你的worker域名/ping.png?p=/api-mojang"
