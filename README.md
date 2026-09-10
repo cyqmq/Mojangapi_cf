@@ -88,3 +88,4 @@ node test.mjs   # Node 22+，无任何依赖，直接调用 Worker 逻辑
 
 - 仅供学习与自用，请遵守 Mojang/Minecraft EULA 与相关服务条款。
 - 上游偶发 429 限流时，代理会原样透传状态码。
+- 初版源码（无 `/status` 状态检查）保留在 [`original/worker.js`](original/worker.js)，可直接部署替换。
