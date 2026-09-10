@@ -290,6 +290,24 @@ function hexColor(hex) {
   return PNG_COLORS[hex] || PNG_COLORS['#555'];
 }
 
+// Minecraft ping 信号条图标（10×8 RGBA，来自 Colored ping bars 资源包）
+const PING_ICONS = {
+  1: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAA/SURBVChTY6AaiI6O/g+imcA8LACmAAQsLCz+YyhEVwBlIkzEpQAGmCYyMONVAANgE32RFOMFMIUwEzFpi/8ARPoZtBvBjrIAAAAASUVORK5CYII=',
+  2: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABESURBVChTY6AaiI6O/g+imcA8LACmAAQsLCz+YyhEVwBlIkz878yAVQEMMCEraFdEsNEB2ER8ClAATCGMhlmNoC3+AwDd0htDZ+iAbAAAAABJRU5ErkJggg==',
+  3: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABKSURBVChTY6AaiI6O/g+imcA8LACmAAQsLCz+Yyj8v5QBRQGUiTARWUF7KIINA0yEFMAA2ER8CmCAiTGagRHEQKeXLl2KRDMwAACvHRnso+9j3wAAAABJRU5ErkJggg==',
+  4: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABISURBVChTY6AaiI6O/g+imcA8LODzfwawAhCwsLD4j6EQWUFzO4INV4hLAQwwEVIAA2AT8SmAASZeRgZGEAMXvXTpUiDNwAAARA0Z2HEfPHAAAAAASUVORK5CYII=',
+  5: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAMElEQVR4XmNgoBr4r/gfXQgVwBSA6HZ+LIrRFWAoxKUArpCQAhSF2CTQaTCAMfDQAD2gShF6V16gAAAAAElFTkSuQmCC',
+};
+
+function latencyToPing(latencyMs, alive) {
+  if (!alive) return 1;
+  if (latencyMs < 300) return 5;
+  if (latencyMs < 800) return 4;
+  if (latencyMs < 1500) return 3;
+  if (latencyMs < 2500) return 2;
+  return 1;
+}
+
 function parseGlyph(rows) {
   const cols = new Array(GLYPH_W).fill(0);
   for (let y = 0; y < GLYPH_H; y++) {
@@ -502,6 +520,55 @@ async function handleBadgePng(url) {
   });
 }
 
+// GET /ping.png —— 按实时延迟返回 ping_1~ping_5 信号条图标
+// 参数：?p=/api-mojang | /session-mojang | /api-minecraft（默认 /api-mojang）
+async function handlePingIcon(url) {
+  const wanted = url.searchParams.get('p') || '/api-mojang';
+  const probe = STATUS_PROBES[wanted];
+  if (!probe) {
+    return new Response('Not Found: unknown endpoint ' + wanted, {
+      status: 404,
+      headers: getCorsHeaders(null),
+    });
+  }
+
+  const start = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  let alive = false;
+  try {
+    const res = await fetch(new URL(probe.probe || '/', probe.base), {
+      method: 'GET',
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+    if (res.body) await res.body.cancel();
+    alive = true;
+  } catch {
+    alive = false;
+  } finally {
+    clearTimeout(timer);
+  }
+  const latencyMs = Date.now() - start;
+  const level = latencyToPing(latencyMs, alive);
+
+  // 返回配置头 + 图标 base64 解码的二进制 PNG
+  const pngBin = atob(PING_ICONS[level]);
+  const bytes = new Uint8Array(pngBin.length);
+  for (let i = 0; i < pngBin.length; i++) bytes[i] = pngBin.charCodeAt(i);
+
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      ...getCorsHeaders(null),
+      'Content-Type': 'image/png',
+      'Cache-Control': 'no-store',
+      'X-Ping-Level': String(level),
+      'X-Ping-Latency-Ms': String(latencyMs),
+    },
+  });
+}
+
 // ES 模块格式的导出
 export default {
   async fetch(request, env, ctx) {
@@ -531,6 +598,11 @@ export default {
     // 状态徽章 PNG 版（PCL2 MyImage 不支持 SVG，只能显示 PNG/JPEG）
     if (url.pathname === '/badge.png') {
       return handleBadgePng(url);
+    }
+
+    // Minecraft ping 信号条图标（根据实时延迟返回 ping_1 ~ ping_5）
+    if (url.pathname === '/ping.png') {
+      return handlePingIcon(url);
     }
 
     // 查找匹配的 API 端点
