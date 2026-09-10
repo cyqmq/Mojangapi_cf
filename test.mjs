@@ -56,8 +56,10 @@ for (const p of ['/api-mojang', '/session-mojang', '/api-minecraft']) {
   const level = r.headers.get('x-ping-level');
   const ms = Number(r.headers.get('x-ping-latency-ms'));
   const sigOk = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => buf[i] === v);
-  console.log(`\n== /ping.png?p=${p} == (${r.status}) level=${level} latency=${ms}ms sig=${sigOk} bytes=${buf.length}`);
-  writeFileSync(`/tmp/opencode/ping-level${level}.png`, buf);
+  const w = buf.readUInt32BE(16);
+  const h = buf.readUInt32BE(20);
+  console.log(`\n== /ping.png?p=${p} == (${r.status}) level=${level} latency=${ms}ms sig=${sigOk} ${w}x${h} bytes=${buf.length}`);
+  writeFileSync(`/tmp/opencode/ping-combo-level${level}.png`, buf);
 }
 await show('unknown path 404', '/foo');
 await show('proxy /api-mojang/users/profiles/minecraft/Notch', '/api-mojang/users/profiles/minecraft/Notch');

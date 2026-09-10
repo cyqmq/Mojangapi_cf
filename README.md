@@ -133,14 +133,14 @@ PNG 版（PCL2 用）：把 `/badge` 替换为 `/badge.png` 即可。
 
 ### 实时延迟信号条 `/ping.png`
 
-按实时延迟返回 Minecraft ping 信号条图标（原色来自 Colored ping bars 资源包，`ping_1` 最差 ~ `ping_5` 最佳）：
+按实时延迟生成 **ping 信号条 + 延迟数字** 合成图（配色来自 Colored ping bars 资源包，`ping_1` 最差 ~ `ping_5` 最佳）：
 
 | 参数 | 说明 |
 |------|------|
-| `?p=/api-mojang`（默认） | 探测并返回相应 ping 图标 |
+| `?p=/api-mojang`（默认） | 探测并生成该上游的信号条图 |
 | `?p=/session-mojang` / `?p=/api-minecraft` | 同上 |
 
-延迟映射与徽章配色一致：`<300ms`→ping_5（绿）、`<800ms`→ping_4（黄）、`<1500ms`→ping_3（橙）、`<2500ms`→ping_2（橙红）、更慢或不可达→ping_1（深红）。
+延迟映射与徽章配色一致：`<300ms`→ping_5（绿）、`<800ms`→ping_4（黄）、`<1500ms`→ping_3（橙）、`<2500ms`→ping_2（橙红）、更慢或不可达→ping_1（深红）。图片左侧为信号条，右侧色块内显示实时延迟数字（如 `307MS`），二者来自同一次探测，同步显示。
 
 ```bash
 curl -o ping.png "https://你的worker域名/ping.png?p=/api-mojang"

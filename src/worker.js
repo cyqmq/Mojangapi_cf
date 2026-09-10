@@ -290,14 +290,19 @@ function hexColor(hex) {
   return PNG_COLORS[hex] || PNG_COLORS['#555'];
 }
 
-// Minecraft ping 信号条图标（10×8 RGBA，来自 Colored ping bars 资源包）
-const PING_ICONS = {
-  1: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAA/SURBVChTY6AaiI6O/g+imcA8LACmAAQsLCz+YyhEVwBlIkzEpQAGmCYyMONVAANgE32RFOMFMIUwEzFpi/8ARPoZtBvBjrIAAAAASUVORK5CYII=',
-  2: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABESURBVChTY6AaiI6O/g+imcA8LACmAAQsLCz+YyhEVwBlIkz878yAVQEMMCEraFdEsNEB2ER8ClAATCGMhlmNoC3+AwDd0htDZ+iAbAAAAABJRU5ErkJggg==',
-  3: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABKSURBVChTY6AaiI6O/g+imcA8LACmAAQsLCz+Yyj8v5QBRQGUiTARWUF7KIINA0yEFMAA2ER8CmCAiTGagRHEQKeXLl2KRDMwAACvHRnso+9j3wAAAABJRU5ErkJggg==',
-  4: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABISURBVChTY6AaiI6O/g+imcA8LODzfwawAhCwsLD4j6EQWUFzO4INV4hLAQwwEVIAA2AT8SmAASZeRgZGEAMXvXTpUiDNwAAARA0Z2HEfPHAAAAAASUVORK5CYII=',
-  5: 'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAICAYAAADA+m62AAAAMElEQVR4XmNgoBr4r/gfXQgVwBSA6HZ+LIrRFWAoxKUArpCQAhSF2CTQaTCAMfDQAD2gShF6V16gAAAAAElFTkSuQmCC',
+// Minecraft ping 信号条（10×8，原图为 Colored ping bars 资源包，程序化生成等效像素）
+// 5 条从左到右错位阶梯条，亮色列 + 右侧暗色阴影列；按等级填充 N 条（灰色为未激活）
+const PING_LEVEL_COLORS = {
+  1: { bright: [145, 0, 3], dark: [77, 0, 3] }, // 深红
+  2: { bright: [255, 67, 0], dark: [135, 33, 0] }, // 橙红
+  3: { bright: [255, 165, 0], dark: [135, 85, 0] }, // 橙
+  4: { bright: [243, 255, 0], dark: [131, 135, 0] }, // 黄
+  5: { bright: [0, 255, 33], dark: [0, 135, 15] }, // 绿
 };
+const PING_GREY = { bright: [91, 91, 91], dark: [56, 56, 56] }; // 未激活灰色槽
+const PING_BARS = 5;
+const PING_ICON_W = 10;
+const PING_ICON_H = 8;
 
 function latencyToPing(latencyMs, alive) {
   if (!alive) return 1;
@@ -306,6 +311,28 @@ function latencyToPing(latencyMs, alive) {
   if (latencyMs < 1500) return 3;
   if (latencyMs < 2500) return 2;
   return 1;
+}
+
+// 绘制 ping 阶梯条（levelN 填充前 N 条），到 raw 画布，base 位置 x0,y0，scale 为放大倍数
+function drawPingStaircase(raw, width, x0, y0, scale, level) {
+  const fill = (x, y, color) => {
+    for (let dy = 0; dy < scale; dy++) {
+      for (let dx = 0; dx < scale; dx++) {
+        const i = rgbAt(raw, width, x0 + x * scale + dx, y0 + y * scale + dy);
+        raw[i] = color[0];
+        raw[i + 1] = color[1];
+        raw[i + 2] = color[2];
+      }
+    }
+  };
+  for (let b = 0; b < PING_BARS; b++) {
+    const filled = b < level;
+    const c = filled ? PING_LEVEL_COLORS[level] : PING_GREY;
+    // 亮色列 x=2b，行 5-b..6
+    for (let r = 5 - b; r <= 6; r++) fill(b * 2, r, c.bright);
+    // 阴影列 x=2b+1，行 6-b..7
+    for (let r = 6 - b; r <= 7; r++) fill(b * 2 + 1, r, c.dark);
+  }
 }
 
 function parseGlyph(rows) {
@@ -520,7 +547,7 @@ async function handleBadgePng(url) {
   });
 }
 
-// GET /ping.png —— 按实时延迟返回 ping_1~ping_5 信号条图标
+// GET /ping.png —— 生成「ping 信号条 + 延迟数字」合成图（PCL2 MyImage 可用）
 // 参数：?p=/api-mojang | /session-mojang | /api-minecraft（默认 /api-mojang）
 async function handlePingIcon(url) {
   const wanted = url.searchParams.get('p') || '/api-mojang';
@@ -536,6 +563,7 @@ async function handlePingIcon(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   let alive = false;
+  let timedOut = false;
   try {
     const res = await fetch(new URL(probe.probe || '/', probe.base), {
       method: 'GET',
@@ -544,20 +572,35 @@ async function handlePingIcon(url) {
     });
     if (res.body) await res.body.cancel();
     alive = true;
-  } catch {
-    alive = false;
+  } catch (error) {
+    timedOut = error?.name === 'AbortError';
   } finally {
     clearTimeout(timer);
   }
   const latencyMs = Date.now() - start;
   const level = latencyToPing(latencyMs, alive);
+  const value = alive ? `${latencyMs}MS` : timedOut ? 'TIMEOUT' : 'DOWN';
 
-  // 返回配置头 + 图标 base64 解码的二进制 PNG
-  const pngBin = atob(PING_ICONS[level]);
-  const bytes = new Uint8Array(pngBin.length);
-  for (let i = 0; i < pngBin.length; i++) bytes[i] = pngBin.charCodeAt(i);
+  // 布局：左侧 ping 信号条（放大 2x），右侧等级色块 + 延迟数字
+  const scale = 2;
+  const iconW = PING_ICON_W * scale;
+  const iconH = PING_ICON_H * scale;
+  const segIconW = PAD_X * 2 + iconW;
+  const segValueW = PAD_X * 2 + measureText(value);
+  const W = segIconW + segValueW;
 
-  return new Response(bytes, {
+  const raw = createCanvasRGB(W, BADGE_H);
+  const white = [255, 255, 255];
+
+  // 信号条（白底，垂直居中）
+  drawPingStaircase(raw, W, PAD_X, Math.round((BADGE_H - iconH) / 2), scale, level);
+
+  // 数值块：等级色背景 + 白色文字，与 /badge 风格一致
+  const levelColor = badgeColor(alive, latencyMs);
+  fillRectRGB(raw, W, segIconW, 0, segValueW, BADGE_H, hexColor(levelColor));
+  drawTextRGB(raw, W, segIconW + PAD_X, 6, value, white);
+
+  return new Response(await encodePng(W, BADGE_H, raw), {
     status: 200,
     headers: {
       ...getCorsHeaders(null),
