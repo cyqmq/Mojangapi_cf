@@ -234,20 +234,24 @@ function buildBadge(segments) {
   );
 }
 
-// GET /badge —— 实时状态徽章，?p=all | /api-mojang | /session-mojang | /api-minecraft
-async function handleBadge(url) {
-  const wanted = url.searchParams.get('p') || 'all';
-
+// 探测目标上游并整理成徽章段（label/value/color），供 SVG 与 PNG 共用
+async function probeSegments(wanted) {
   const entries = await Promise.all(
     Object.keys(STATUS_PROBES).map(async (name) => [name, await probeAvailability(name)]),
   );
   const picked = wanted === 'all' ? entries : entries.filter(([name]) => name === wanted);
 
-  const segments = picked.map(([name, r]) => ({
+  return picked.map(([name, r]) => ({
     label: name,
     value: r.alive ? `${r.latencyMs}ms` : r.error === 'timeout' ? 'timeout' : 'down',
     color: badgeColor(r.alive, r.latencyMs),
   }));
+}
+
+// GET /badge —— 实时状态徽章（SVG），?p=all | /api-mojang | /session-mojang | /api-minecraft
+async function handleBadge(url) {
+  const wanted = url.searchParams.get('p') || 'all';
+  const segments = await probeSegments(wanted);
   if (!segments.length) {
     segments.push({ label: 'badge', value: `unknown: ${wanted}`, color: '#9f9f9f' });
   }
@@ -257,6 +261,242 @@ async function handleBadge(url) {
     headers: {
       ...getCorsHeaders(null),
       'Content-Type': 'image/svg+xml; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+// ---- /badge.png —— 同一徽章的 PNG 版（PCL2 的 WPF 不支持 SVG，只能显示 PNG/JPEG）----
+// 零依赖：内置 5x7 位图字体 + 手工 PNG 编码（zlib 由 Web CompressionStream 提供）
+
+const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const BADGE_H = 20;
+const GLYPH_W = 5;
+const GLYPH_H = 7;
+const GLYPH_ADV = 6;
+const PAD_X = 5;
+
+const PNG_COLORS = {
+  '#4c1': [76, 204, 17],
+  '#97ca00': [151, 202, 0],
+  '#dfb317': [223, 179, 23],
+  '#fe7d37': [254, 125, 55],
+  '#e05d44': [224, 93, 68],
+  '#555': [85, 85, 85],
+  '#9f9f9f': [159, 159, 159],
+};
+
+function hexColor(hex) {
+  return PNG_COLORS[hex] || PNG_COLORS['#555'];
+}
+
+function parseGlyph(rows) {
+  const cols = new Array(GLYPH_W).fill(0);
+  for (let y = 0; y < GLYPH_H; y++) {
+    for (let x = 0; x < GLYPH_W; x++) {
+      if (rows[y][x] === '#') cols[x] |= 1 << (6 - y);
+    }
+  }
+  return cols;
+}
+
+const FONT_ROWS = {
+  A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
+  C: ['.####', '#....', '#....', '#....', '#....', '#....', '.####'],
+  D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+  F: ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+  G: ['.####', '#....', '#....', '#.###', '#...#', '#...#', '.###.'],
+  H: ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  I: ['.###.', '..#..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  J: ['..###', '...#.', '...#.', '...#.', '...#.', '#..#.', '.##..'],
+  K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
+  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+  M: ['#...#', '##.##', '#.#.#', '#.#.#', '#...#', '#...#', '#...#'],
+  N: ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
+  O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  P: ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+  Q: ['.###.', '#...#', '#...#', '#...#', '#.#..', '#..#.', '.##.#'],
+  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+  S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
+  T: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
+  U: ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  V: ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
+  W: ['#...#', '#...#', '#...#', '#.#.#', '#.#.#', '##.##', '#...#'],
+  X: ['#...#', '#...#', '.#.#.', '..#..', '.#.#.', '#...#', '#...#'],
+  Y: ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..'],
+  Z: ['#####', '....#', '...#.', '..#..', '.#...', '#....', '#####'],
+  0: ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+  1: ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  2: ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+  3: ['.###.', '#...#', '....#', '..##.', '....#', '#...#', '.###.'],
+  4: ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+  5: ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+  6: ['..##.', '.#...', '#....', '####.', '#...#', '#...#', '.###.'],
+  7: ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+  8: ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+  9: ['.###.', '#...#', '#...#', '.####', '....#', '...#.', '.##..'],
+  '-': ['.....', '.....', '.....', '#####', '.....', '.....', '.....'],
+  '/': ['....#', '...#.', '...#.', '..#..', '.#...', '#....', '#....'],
+  ':': ['.....', '..#..', '..#..', '.....', '..#..', '..#..', '.....'],
+  ' ': ['.....', '.....', '.....', '.....', '.....', '.....', '.....'],
+};
+
+const PNG_FONT = {};
+for (const [ch, rows] of Object.entries(FONT_ROWS)) {
+  PNG_FONT[ch] = parseGlyph(rows);
+}
+
+function crc32(bytes) {
+  let table = PNG_FONT._crc;
+  if (!table) {
+    table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c;
+    }
+    PNG_FONT._crc = table;
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = table[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(typeStr, data) {
+  const out = new Uint8Array(data.length + 12);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = typeStr.charCodeAt(i);
+  out.set(data, 8);
+  dv.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+async function zlibDeflate(data) {
+  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function encodePng(width, height, rgb) {
+  const ihdr = new Uint8Array(13);
+  const dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, width);
+  dv.setUint32(4, height);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // color type: RGB（PCL2/WPF 通用）
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+
+  const parts = [
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', await zlibDeflate(rgb)),
+    pngChunk('IEND', new Uint8Array(0)),
+  ];
+  let total = 0;
+  for (const p of parts) total += p.length;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.length;
+  }
+  return out;
+}
+
+function createCanvasRGB(width, height) {
+  const rowStride = 1 + width * 3;
+  const raw = new Uint8Array(rowStride * height);
+  // 白色背景，同时把每行的 filter 字节设为 0（None）
+  for (let y = 0; y < height; y++) {
+    raw[y * rowStride] = 0; // filter byte
+    const off = y * rowStride + 1;
+    for (let x = 0; x < width; x++) {
+      raw[off + x * 3] = 255;
+      raw[off + x * 3 + 1] = 255;
+      raw[off + x * 3 + 2] = 255;
+    }
+  }
+  return raw;
+}
+
+function rgbAt(raw, width, x, y) {
+  return y * (1 + width * 3) + 1 + x * 3;
+}
+
+function fillRectRGB(raw, width, x, y, w, h, color) {
+  for (let py = y; py < y + h; py++) {
+    for (let px = x; px < x + w; px++) {
+      const i = rgbAt(raw, width, px, py);
+      raw[i] = color[0];
+      raw[i + 1] = color[1];
+      raw[i + 2] = color[2];
+    }
+  }
+}
+
+function drawGlyphRGB(raw, width, x, y, glyph, color) {
+  for (let c = 0; c < GLYPH_W; c++) {
+    const col = glyph[c];
+    for (let r = 0; r < GLYPH_H; r++) {
+      if ((col >> (6 - r)) & 1) {
+        const i = rgbAt(raw, width, x + c, y + r);
+        raw[i] = color[0];
+        raw[i + 1] = color[1];
+        raw[i + 2] = color[2];
+      }
+    }
+  }
+}
+
+function measureText(text) {
+  return text.length * GLYPH_ADV - 1;
+}
+
+function drawTextRGB(raw, width, x, y, text, color) {
+  let cx = x;
+  for (const ch of String(text).toUpperCase()) {
+    const glyph = PNG_FONT[ch];
+    if (glyph) drawGlyphRGB(raw, width, cx, y, glyph, color);
+    cx += GLYPH_ADV;
+  }
+}
+
+// GET /badge.png —— PNG 版状态徽章（PCL2 MyImage 可用），参数同 /badge
+async function handleBadgePng(url) {
+  const wanted = url.searchParams.get('p') || 'all';
+  const segments = await probeSegments(wanted);
+  if (!segments.length) {
+    segments.push({ label: 'badge', value: `unknown: ${wanted}`, color: '#9f9f9f' });
+  }
+
+  const layout = [];
+  let cursor = 0;
+  for (const s of segments) {
+    const w = measureText(s.label) + PAD_X * 2;
+    const v = measureText(s.value) + PAD_X * 2;
+    layout.push({ s, w, v, x: cursor });
+    cursor += w + v;
+  }
+  const W = cursor;
+
+  const raw = createCanvasRGB(W, BADGE_H);
+  const white = [255, 255, 255];
+  for (const { s, w, v, x } of layout) {
+    fillRectRGB(raw, W, x, 0, w, BADGE_H, hexColor('#555'));
+    fillRectRGB(raw, W, x + w, 0, v, BADGE_H, hexColor(s.color));
+    drawTextRGB(raw, W, x + PAD_X, 6, s.label, white);
+    drawTextRGB(raw, W, x + w + PAD_X, 6, s.value, white);
+  }
+
+  return new Response(await encodePng(W, BADGE_H, raw), {
+    status: 200,
+    headers: {
+      ...getCorsHeaders(null),
+      'Content-Type': 'image/png',
       'Cache-Control': 'no-store',
     },
   });
@@ -286,6 +526,11 @@ export default {
     // 状态徽章（SVG 图片，供 PCL2 主页等嵌入）
     if (url.pathname === '/badge') {
       return handleBadge(url);
+    }
+
+    // 状态徽章 PNG 版（PCL2 MyImage 不支持 SVG，只能显示 PNG/JPEG）
+    if (url.pathname === '/badge.png') {
+      return handleBadgePng(url);
     }
 
     // 查找匹配的 API 端点

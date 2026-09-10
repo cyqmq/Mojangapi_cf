@@ -1,6 +1,7 @@
 // 本地冒烟测试：无需 Cloudflare 账号（Node 22+ 自带 fetch/Request/Response）
 // 用法： node test.mjs
 import worker from './src/worker.js';
+import { writeFileSync } from 'node:fs';
 
 const call = async (path) => {
   const res = await worker.fetch(new Request('http://localhost' + path));
@@ -35,5 +36,18 @@ for (const q of ['all', '/api-mojang', '/api-minecraft', '/no-such']) {
   console.log(`\n== /badge?p=${q} == (${b.status} ${b.text.match(/Content-Type|image|svg/) ? 'svg' : '?'}) width=${b.text.match(/width="(\d+)"/)?.[1]}`);
 }
 
+const badgePngRes = await worker.fetch(new Request('http://localhost/badge.png?p=/api-mojang'));
+const b = Buffer.from(await badgePngRes.arrayBuffer());
+const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const okSig = sig.every((v, i) => b[i] === v);
+const w = b.readUInt32BE(16);
+const h = b.readUInt32BE(20);
+console.log(`\n== /badge.png?p=/api-mojang == (${badgePngRes.status}) PNG sig=${okSig} ${w}x${h} bytes=${b.length}`);
+if (!okSig || w <= 0 || h !== 20) process.exit(1);
+
+const bAll = Buffer.from(await (await worker.fetch(new Request('http://localhost/badge.png?p=all'))).arrayBuffer());
+console.log(`== /badge.png?p=all == ${bAll.readUInt32BE(16)}x${bAll.readUInt32BE(20)} bytes=${bAll.length}`);
+writeFileSync('/tmp/opencode/badge-single.png', b);
+writeFileSync('/tmp/opencode/badge-all.png', bAll);
 await show('unknown path 404', '/foo');
 await show('proxy /api-mojang/users/profiles/minecraft/Notch', '/api-mojang/users/profiles/minecraft/Notch');

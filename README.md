@@ -92,7 +92,16 @@ curl https://你的worker域名/ping
 
 ### 状态徽章 `/badge`（PCL2 主页集成）
 
-动态生成 shields 风格 SVG 徽章，实时反映上游状态与延迟，可直接作为图片嵌入网页 / PCL2 主页按钮：
+动态生成 shields 风格徽章，实时反映上游状态与延迟。
+
+端点说明：
+
+| 路径 | 格式 | 适用场景 |
+|------|------|----------|
+| `/badge` | SVG | 网页、Markdown（shields.io 风格） |
+| `/badge.png` | PNG (RGB) | PCL2 MyImage 控件、WPF 等不支持 SVG 的环境 |
+
+参数（SVG 和 PNG 共用）：
 
 | 参数 | 说明 |
 |------|------|
@@ -102,9 +111,12 @@ curl https://你的worker域名/ping
 
 ```bash
 # 示例（这些 URL 本身就是一张图片）
-https://你的worker域名/badge?p=all
-https://你的worker域名/badge?p=/api-mojang
+https://你的worker域名/badge?p=all        # SVG
+https://你的worker域名/badge.png?p=all    # PNG（PCL2 用这个）
+https://你的worker域名/badge.png?p=/api-mojang
 ```
+
+> **PCL2 集成**：PCL2 的 `MyImage` 控件基于 WPF，不支持 SVG。使用 `/badge.png` 端点获取 PNG 格式徽章。在启动器主页按钮的图片引用 `badge.png` URL，即可实时显示 API 延迟；点按钮可跳转 `/status` 查看完整 JSON。
 
 徽章右侧颜色表示当前延迟：
 绿 `300ms` 内 / 黄绿 `800ms` 内 / 黄 `1500ms` 内 / 橙更慢，红色表示不可达（`down`/`timeout`）。
@@ -117,7 +129,7 @@ Markdown 嵌入示例：
 ![api-minecraft](https://你的worker域名/badge?p=/api-minecraft)
 ```
 
-> PCL2 集成：在启动器主页按钮的图片/网页里引用上述 SVG URL，即可实时看到 API 延迟；点按钮可跳转 `/status` 查看完整 JSON。
+PNG 版（PCL2 用）：把 `/badge` 替换为 `/badge.png` 即可。
 
 ## 本地调试
 
